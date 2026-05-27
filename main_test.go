@@ -162,6 +162,30 @@ func TestSupabaseConfigRejectsInvalidURLAndTable(t *testing.T) {
 	}
 }
 
+func TestSupabaseClientNormalizesRESTEndpointURL(t *testing.T) {
+	t.Setenv("SUPABASE_URL", "https://project.supabase.co/rest/v1")
+	t.Setenv("SUPABASE_SECRET_KEY", "secret")
+	t.Setenv("SUPABASE_INQUIRIES_TABLE", "inquiries")
+
+	client := newSupabaseClientFromEnv()
+
+	if client.url != "https://project.supabase.co" {
+		t.Fatalf("expected normalized project URL, got %q", client.url)
+	}
+}
+
+func TestSupabaseClientAcceptsServiceRoleKeyAlias(t *testing.T) {
+	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
+	t.Setenv("SUPABASE_SECRET_KEY", "")
+	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-secret")
+
+	client := newSupabaseClientFromEnv()
+
+	if client.secretKey != "service-role-secret" {
+		t.Fatalf("expected service role alias to populate secret key")
+	}
+}
+
 func TestContactAcceptsBrowserFormDataSubmission(t *testing.T) {
 	var captured map[string]string
 	var body bytes.Buffer
@@ -312,6 +336,7 @@ func newTestApp(t *testing.T, supabaseURL, supabaseSecret string) http.Handler {
 	t.Helper()
 	t.Setenv("SUPABASE_URL", supabaseURL)
 	t.Setenv("SUPABASE_SECRET_KEY", supabaseSecret)
+	t.Setenv("SUPABASE_SERVICE_ROLE_KEY", "")
 	t.Setenv("SUPABASE_INQUIRIES_TABLE", "")
 	t.Setenv("SMTP_HOST", "")
 	t.Setenv("SMTP_PORT", "")

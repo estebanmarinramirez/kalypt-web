@@ -6,7 +6,7 @@ Minimal Go and HTML5 website for Kalypt.
 
 ```sh
 export SUPABASE_URL="https://your-project-ref.supabase.co"
-export SUPABASE_SECRET_KEY="your-server-side-secret-key"
+export SUPABASE_SERVICE_ROLE_KEY="your-server-side-service-role-key"
 export SUPABASE_INQUIRIES_TABLE="inquiries"
 export INQUIRY_EMAIL_TO="estebanmarinramirez@icloud.com"
 export SMTP_HOST="smtp.example.com"
@@ -41,7 +41,7 @@ Set these environment variables in Render:
 
 ```sh
 SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_SECRET_KEY=your-server-side-secret-key
+SUPABASE_SERVICE_ROLE_KEY=your-server-side-service-role-key
 SUPABASE_INQUIRIES_TABLE=inquiries
 INQUIRY_EMAIL_TO=estebanmarinramirez@icloud.com
 SMTP_HOST=smtp.example.com
@@ -55,7 +55,7 @@ SMTP_FROM=notifications@your-domain.com
 
 Run `supabase/schema.sql` in the Supabase SQL editor before enabling the contact form.
 
-`SUPABASE_SECRET_KEY` must stay server-side. Do not expose it in browser JavaScript.
+`SUPABASE_SERVICE_ROLE_KEY` must stay server-side. Do not expose it in browser JavaScript.
 
 ## Email Notifications
 

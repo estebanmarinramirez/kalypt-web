@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"net/mail"
@@ -202,12 +203,22 @@ func newSupabaseClientFromEnv() *supabaseClient {
 	if table == "" {
 		table = "inquiries"
 	}
+	secretKey := strings.TrimSpace(os.Getenv("SUPABASE_SECRET_KEY"))
+	if secretKey == "" {
+		secretKey = strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY"))
+	}
 	return &supabaseClient{
-		url:        strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
-		secretKey:  strings.TrimSpace(os.Getenv("SUPABASE_SECRET_KEY")),
+		url:        normalizeSupabaseURL(os.Getenv("SUPABASE_URL")),
+		secretKey:  secretKey,
 		table:      table,
 		httpClient: &http.Client{Timeout: 6 * time.Second},
 	}
+}
+
+func normalizeSupabaseURL(raw string) string {
+	value := strings.TrimRight(strings.TrimSpace(raw), "/")
+	value = strings.TrimSuffix(value, "/rest/v1")
+	return strings.TrimRight(value, "/")
 }
 
 func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error {
@@ -237,9 +248,17 @@ func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("supabase returned status %d", resp.StatusCode)
+		return fmt.Errorf("supabase returned status %d: %s", resp.StatusCode, limitedResponseBody(resp.Body))
 	}
 	return nil
+}
+
+func limitedResponseBody(body io.Reader) string {
+	data, err := io.ReadAll(io.LimitReader(body, 512))
+	if err != nil {
+		return "unable to read response body"
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func validateSupabaseConfig(rawURL, table string) error {
