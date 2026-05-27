@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -88,6 +89,54 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 	}
 	if emailed.Name != "Ada Lovelace" || emailed.Email != "ada@example.com" || emailed.Focus != "securities" {
 		t.Fatalf("unexpected email payload: %#v", emailed)
+	}
+}
+
+func TestContactAcceptsBrowserFormDataSubmission(t *testing.T) {
+	var captured map[string]string
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range map[string]string{
+		"name":    "Ada Lovelace",
+		"email":   "ada@example.com",
+		"market":  "careers",
+		"message": "I would like to discuss research roles.",
+	} {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write multipart field: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
+	site := handler.(*app)
+	site.notifier = notifierFunc(func(_ *http.Request, _ inquiry) error {
+		return nil
+	})
+	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString("{}")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	req := httptest.NewRequest(http.MethodPost, "/contact", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if captured["name"] != "Ada Lovelace" {
+		t.Fatalf("expected multipart name to be captured, got %#v", captured)
 	}
 }
 

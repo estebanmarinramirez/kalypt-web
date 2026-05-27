@@ -122,7 +122,7 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := parseContactForm(r); err != nil {
 		writeJSON(w, http.StatusBadRequest, "Invalid form submission.")
 		return
 	}
@@ -168,6 +168,14 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 		log.Printf("inquiry received name=%q email=%q focus=%q message_chars=%d", name, email, focus, len(message))
 		writeJSON(w, http.StatusOK, "Inquiry received. We will respond if there is a fit.")
 	}
+}
+
+func parseContactForm(r *http.Request) error {
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		return r.ParseMultipartForm(1 << 20)
+	}
+	return r.ParseForm()
 }
 
 func newSupabaseClientFromEnv() *supabaseClient {
