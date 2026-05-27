@@ -229,6 +229,10 @@ func normalizeSupabaseKey(raw string) string {
 	return strings.TrimSpace(value)
 }
 
+func isLegacyJWTKey(key string) bool {
+	return strings.HasPrefix(key, "eyJ")
+}
+
 func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error {
 	if c == nil || c.url == "" || c.secretKey == "" {
 		return errors.New("supabase configuration missing")
@@ -247,7 +251,9 @@ func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("apikey", c.secretKey)
-	req.Header.Set("Authorization", "Bearer "+c.secretKey)
+	if isLegacyJWTKey(c.secretKey) {
+		req.Header.Set("Authorization", "Bearer "+c.secretKey)
+	}
 	req.Header.Set("Prefer", "return=minimal")
 
 	resp, err := c.httpClient.Do(req)

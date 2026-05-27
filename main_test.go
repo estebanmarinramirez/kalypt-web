@@ -72,7 +72,7 @@ func TestPagesAllowHeadRequests(t *testing.T) {
 func TestContactAcceptsValidInquiry(t *testing.T) {
 	var captured map[string]string
 	var emailed inquiry
-	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
+	handler := newTestApp(t, "https://project.supabase.co", "eyJlegacy-service-role")
 	site := handler.(*app)
 	site.notifier = notifierFunc(func(_ *http.Request, item inquiry) error {
 		emailed = item
@@ -82,10 +82,10 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 		if r.URL.Path != "/rest/v1/inquiries" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
-		if r.Header.Get("apikey") != "test-secret" {
+		if r.Header.Get("apikey") != "eyJlegacy-service-role" {
 			t.Fatalf("missing Supabase apikey header")
 		}
-		if r.Header.Get("Authorization") != "Bearer test-secret" {
+		if r.Header.Get("Authorization") != "Bearer eyJlegacy-service-role" {
 			t.Fatalf("missing Supabase authorization header")
 		}
 		if r.Header.Get("Prefer") != "return=minimal" {
@@ -194,6 +194,37 @@ func TestSupabaseClientNormalizesPastedKey(t *testing.T) {
 
 	if client.secretKey != "service-role-secret" {
 		t.Fatalf("expected normalized key, got %q", client.secretKey)
+	}
+}
+
+func TestSupabaseInsertDoesNotSendSecretKeyAsBearerToken(t *testing.T) {
+	client := &supabaseClient{
+		url:       "https://project.supabase.co",
+		secretKey: "sb_secret_test",
+		table:     "inquiries",
+	}
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if got := r.Header.Get("apikey"); got != "sb_secret_test" {
+			t.Fatalf("expected apikey header, got %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("did not expect Authorization header for opaque secret key, got %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString("{}")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := client.insertInquiry(contextWithTimeout(t), inquiry{
+		Name:    "Ada",
+		Email:   "ada@example.com",
+		Message: "hello world hello",
+	})
+
+	if err != nil {
+		t.Fatalf("insert inquiry: %v", err)
 	}
 }
 
