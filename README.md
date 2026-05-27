@@ -8,7 +8,7 @@ Minimal Go and HTML5 website for Kalypt.
 export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SECRET_KEY="your-server-side-secret-key"
 export SUPABASE_INQUIRIES_TABLE="inquiries"
-export INQUIRY_EMAIL_TO="estebanmarinramriez@icloud.com"
+export INQUIRY_EMAIL_TO="estebanmarinramirez@icloud.com"
 export SMTP_HOST="smtp.example.com"
 export SMTP_PORT="587"
 export SMTP_USERNAME="your-smtp-username"
@@ -43,7 +43,7 @@ Set these environment variables in Render:
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SECRET_KEY=your-server-side-secret-key
 SUPABASE_INQUIRIES_TABLE=inquiries
-INQUIRY_EMAIL_TO=estebanmarinramriez@icloud.com
+INQUIRY_EMAIL_TO=estebanmarinramirez@icloud.com
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USERNAME=your-smtp-username

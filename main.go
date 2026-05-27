@@ -11,11 +11,17 @@ import (
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+const maxContactBodyBytes int64 = 1 << 20
+
+var supabaseTablePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
 
 type pageData struct {
 	Title string
@@ -85,7 +91,15 @@ func newApp() http.Handler {
 }
 
 func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
 	a.mux.ServeHTTP(w, r)
+}
+
+func setSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
 }
 
 func (a *app) routes() {
@@ -101,7 +115,7 @@ func (a *app) routes() {
 
 func (a *app) page(name, title string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -122,7 +136,12 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxContactBodyBytes)
 	if err := parseContactForm(r); err != nil {
+		if strings.Contains(err.Error(), "request body too large") {
+			writeJSON(w, http.StatusRequestEntityTooLarge, "Inquiry is too large.")
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, "Invalid form submission.")
 		return
 	}
@@ -165,7 +184,7 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, "Inquiry notification is temporarily unavailable.")
 			return
 		}
-		log.Printf("inquiry received name=%q email=%q focus=%q message_chars=%d", name, email, focus, len(message))
+		log.Printf("inquiry received focus=%q message_chars=%d", focus, len(message))
 		writeJSON(w, http.StatusOK, "Inquiry received. We will respond if there is a fit.")
 	}
 }
@@ -195,6 +214,9 @@ func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error 
 	if c == nil || c.url == "" || c.secretKey == "" {
 		return errors.New("supabase configuration missing")
 	}
+	if err := validateSupabaseConfig(c.url, c.table); err != nil {
+		return err
+	}
 	body, err := json.Marshal(item)
 	if err != nil {
 		return fmt.Errorf("encode inquiry: %w", err)
@@ -220,6 +242,20 @@ func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error 
 	return nil
 }
 
+func validateSupabaseConfig(rawURL, table string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("supabase URL invalid: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" || !strings.HasSuffix(parsed.Host, ".supabase.co") {
+		return errors.New("supabase URL must be an https supabase.co project URL")
+	}
+	if !supabaseTablePattern.MatchString(table) {
+		return errors.New("supabase table name invalid")
+	}
+	return nil
+}
+
 func newSMTPNotifierFromEnv() *smtpNotifier {
 	port := 587
 	if raw := strings.TrimSpace(os.Getenv("SMTP_PORT")); raw != "" {
@@ -229,7 +265,7 @@ func newSMTPNotifierFromEnv() *smtpNotifier {
 	}
 	to := strings.TrimSpace(os.Getenv("INQUIRY_EMAIL_TO"))
 	if to == "" {
-		to = "estebanmarinramriez@icloud.com"
+		to = "estebanmarinramirez@icloud.com"
 	}
 	return &smtpNotifier{
 		host:     strings.TrimSpace(os.Getenv("SMTP_HOST")),

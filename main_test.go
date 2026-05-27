@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestContactRejectsInvalidEmail(t *testing.T) {
@@ -31,6 +33,39 @@ func TestContactRejectsInvalidEmail(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "valid email") {
 		t.Fatalf("expected email validation message, got %q", rec.Body.String())
+	}
+}
+
+func TestPagesIncludeSecurityHeaders(t *testing.T) {
+	app := newApp()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.ServeHTTP(rec, req)
+
+	for header, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+		"X-Frame-Options":        "DENY",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Fatalf("%s expected %q, got %q", header, want, got)
+		}
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
+		t.Fatalf("expected CSP default-src, got %q", got)
+	}
+}
+
+func TestPagesAllowHeadRequests(t *testing.T) {
+	app := newApp()
+	req := httptest.NewRequest(http.MethodHead, "/", nil)
+	rec := httptest.NewRecorder()
+
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
 
@@ -89,6 +124,41 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 	}
 	if emailed.Name != "Ada Lovelace" || emailed.Email != "ada@example.com" || emailed.Focus != "securities" {
 		t.Fatalf("unexpected email payload: %#v", emailed)
+	}
+}
+
+func TestContactRejectsOversizedBody(t *testing.T) {
+	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
+	form := url.Values{
+		"name":    {"Ada Lovelace"},
+		"email":   {"ada@example.com"},
+		"market":  {"careers"},
+		"message": {strings.Repeat("x", int(maxContactBodyBytes)+1)},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/contact", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSupabaseConfigRejectsInvalidURLAndTable(t *testing.T) {
+	t.Setenv("SUPABASE_URL", "http://example.com")
+	t.Setenv("SUPABASE_SECRET_KEY", "secret")
+	client := newSupabaseClientFromEnv()
+	if err := client.insertInquiry(contextWithTimeout(t), inquiry{Name: "Ada", Email: "ada@example.com", Message: "hello world hello"}); err == nil {
+		t.Fatal("expected invalid Supabase URL to be rejected")
+	}
+
+	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
+	t.Setenv("SUPABASE_INQUIRIES_TABLE", "../weird")
+	client = newSupabaseClientFromEnv()
+	if err := client.insertInquiry(contextWithTimeout(t), inquiry{Name: "Ada", Email: "ada@example.com", Message: "hello world hello"}); err == nil {
+		t.Fatal("expected invalid Supabase table to be rejected")
 	}
 }
 
@@ -194,6 +264,15 @@ func TestContactReturnsServerErrorWhenEmailIsMissing(t *testing.T) {
 	}
 }
 
+func TestSMTPNotifierDefaultsToCorrectRecipient(t *testing.T) {
+	t.Setenv("INQUIRY_EMAIL_TO", "")
+	notifier := newSMTPNotifierFromEnv()
+
+	if notifier.to != "estebanmarinramirez@icloud.com" {
+		t.Fatalf("unexpected default recipient %q", notifier.to)
+	}
+}
+
 func TestLegalPagesRender(t *testing.T) {
 	app := newApp()
 	for _, path := range []string{"/privacy", "/terms", "/cookies", "/gdpr"} {
@@ -254,4 +333,11 @@ type notifierFunc func(*http.Request, inquiry) error
 
 func (fn notifierFunc) sendInquiry(r *http.Request, item inquiry) error {
 	return fn(r, item)
+}
+
+func contextWithTimeout(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	t.Cleanup(cancel)
+	return ctx
 }
