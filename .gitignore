@@ -1,0 +1,5 @@
+.env
+.gocache/
+kalypt
+app
+*.log

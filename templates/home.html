@@ -1,0 +1,132 @@
+{{template "head" .}}
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="kicker">Quantitative investment fund</p>
+      <h1>Kalypt</h1>
+      <p class="lede">Research-built trading systems for fragmented markets, engineered to find signal, move first, and control risk across crypto, commodities, and securities.</p>
+      <div class="hero-actions">
+        <a class="button primary" href="#contact">Request access</a>
+        <a class="button quiet" href="#method">View method</a>
+      </div>
+    </div>
+    <div class="signal-panel" aria-label="Kalypt execution signal motif">
+      <div class="sun"></div>
+      <div class="diagonal one"></div>
+      <div class="diagonal two"></div>
+      <div class="ticker-grid">
+        <span>03</span><span>17</span><span>41</span><span>89</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="method" class="band">
+    <div class="section-heading">
+      <p class="kicker">Method</p>
+      <h2>Research that earns its latency.</h2>
+    </div>
+    <div class="feature-grid">
+      <article>
+        <span>01</span>
+        <h3>Discovery</h3>
+        <p>Signals begin as mathematical claims about microstructure, flow, and probability.</p>
+      </article>
+      <article>
+        <span>02</span>
+        <h3>Falsification</h3>
+        <p>Ideas face null models, out-of-sample regimes, slippage, queue position, and capacity.</p>
+      </article>
+      <article>
+        <span>03</span>
+        <h3>Control</h3>
+        <p>Execution, sizing, inventory, and drawdown behavior are modeled as one system.</p>
+      </article>
+    </div>
+    <div class="method-note">
+      <p>We treat markets as noisy physical systems: observable, unstable, and adversarial. Research is accepted only when it survives statistical pressure, implementation cost, and live-market constraints.</p>
+    </div>
+  </section>
+
+  <section id="infrastructure" class="split">
+    <div>
+      <p class="kicker">Infrastructure</p>
+      <h2>A research lab with a market clock.</h2>
+    </div>
+    <div class="copy-stack">
+      <p>Tick data pipelines, reproducible simulation, low-latency execution, and live observability.</p>
+      <p>The platform is built for scientists and systems programmers working close to the market.</p>
+    </div>
+  </section>
+
+  <section id="careers" class="band careers-section">
+    <div class="section-heading">
+      <p class="kicker">Careers</p>
+      <h2>For people who prefer hard problems.</h2>
+    </div>
+    <div class="career-grid">
+      <article>
+        <span>Research Scientist</span>
+        <h3>Applied mathematics for live markets.</h3>
+        <p>Develop statistical models, test trading hypotheses, and turn first-class research into robust algorithms.</p>
+        <ul>
+          <li>Advanced work in mathematics, physics, statistics, computer science, or adjacent fields.</li>
+          <li>Exceptional research record and strong programming taste.</li>
+          <li>Comfort with ambiguity, noise, and empirical failure.</li>
+        </ul>
+      </article>
+      <article>
+        <span>Research Infrastructure Programmer</span>
+        <h3>Systems for scientific trading.</h3>
+        <p>Build the software environment where data, models, simulation, execution, and accounting remain precise.</p>
+        <ul>
+          <li>Strong analytical programming in Linux/Unix environments.</li>
+          <li>Experience with performance-sensitive systems and research tooling.</li>
+          <li>Ability to work closely with scientists on complex statistical infrastructure.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="poster-strip" aria-label="Operating principles">
+    <div>Measure</div>
+    <div>Execute</div>
+    <div>Protect</div>
+    <div>Adapt</div>
+  </section>
+
+  <section id="contact" class="contact-section">
+    <div class="section-heading">
+      <p class="kicker">Contact</p>
+      <h2>Careers and institutional inquiries.</h2>
+    </div>
+    <form id="contact-form" class="contact-form" method="post" action="/contact">
+      <label>
+        <span>Name</span>
+        <input name="name" autocomplete="name" required>
+      </label>
+      <label>
+        <span>Email</span>
+        <input name="email" type="email" autocomplete="email" required>
+      </label>
+      <label>
+        <span>Inquiry focus</span>
+        <select name="market">
+          <option value="institutional">Institutional</option>
+          <option value="careers">Careers</option>
+          <option value="crypto">Crypto</option>
+          <option value="commodities">Commodities</option>
+          <option value="securities">Securities</option>
+          <option value="multi-asset">Multi-asset</option>
+        </select>
+      </label>
+      <label class="full">
+        <span>Message</span>
+        <textarea name="message" rows="5" required></textarea>
+      </label>
+      <p class="form-note">By submitting, you agree that Kalypt may process this inquiry to respond to you. No marketing cookies are used by default.</p>
+      <button class="button primary" type="submit">Send inquiry</button>
+      <output id="form-status" role="status" aria-live="polite"></output>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}
