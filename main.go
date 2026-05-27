@@ -10,7 +10,9 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"net/smtp"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +26,7 @@ type app struct {
 	mux       *http.ServeMux
 	templates *template.Template
 	supabase  *supabaseClient
+	notifier  inquiryNotifier
 }
 
 type inquiry struct {
@@ -40,6 +43,19 @@ type supabaseClient struct {
 	secretKey  string
 	table      string
 	httpClient *http.Client
+}
+
+type inquiryNotifier interface {
+	sendInquiry(*http.Request, inquiry) error
+}
+
+type smtpNotifier struct {
+	host     string
+	port     int
+	username string
+	password string
+	from     string
+	to       string
 }
 
 func main() {
@@ -62,6 +78,7 @@ func newApp() http.Handler {
 		mux:       http.NewServeMux(),
 		templates: tmpl,
 		supabase:  newSupabaseClientFromEnv(),
+		notifier:  newSMTPNotifierFromEnv(),
 	}
 	a.routes()
 	return a
@@ -135,6 +152,19 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, "Inquiry storage is temporarily unavailable.")
 			return
 		}
+		err = a.notifier.sendInquiry(r, inquiry{
+			Name:       name,
+			Email:      email,
+			Focus:      focus,
+			Message:    message,
+			UserAgent:  r.UserAgent(),
+			RemoteAddr: r.RemoteAddr,
+		})
+		if err != nil {
+			log.Printf("inquiry email notification failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, "Inquiry notification is temporarily unavailable.")
+			return
+		}
 		log.Printf("inquiry received name=%q email=%q focus=%q message_chars=%d", name, email, focus, len(message))
 		writeJSON(w, http.StatusOK, "Inquiry received. We will respond if there is a fit.")
 	}
@@ -180,6 +210,71 @@ func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error 
 		return fmt.Errorf("supabase returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func newSMTPNotifierFromEnv() *smtpNotifier {
+	port := 587
+	if raw := strings.TrimSpace(os.Getenv("SMTP_PORT")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			port = parsed
+		}
+	}
+	to := strings.TrimSpace(os.Getenv("INQUIRY_EMAIL_TO"))
+	if to == "" {
+		to = "estebanmarinramriez@icloud.com"
+	}
+	return &smtpNotifier{
+		host:     strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		port:     port,
+		username: strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		password: strings.TrimSpace(os.Getenv("SMTP_PASSWORD")),
+		from:     strings.TrimSpace(os.Getenv("SMTP_FROM")),
+		to:       to,
+	}
+}
+
+func (n *smtpNotifier) sendInquiry(r *http.Request, item inquiry) error {
+	if n == nil || n.host == "" || n.username == "" || n.password == "" || n.from == "" || n.to == "" {
+		return errors.New("smtp configuration missing")
+	}
+	if !validEmail(n.to) {
+		return errors.New("inquiry recipient email invalid")
+	}
+	if !validEmail(n.from) {
+		return errors.New("smtp from email invalid")
+	}
+	subject := "New Kalypt inquiry: " + cleanHeader(item.Focus)
+	if strings.TrimSpace(item.Focus) == "" {
+		subject = "New Kalypt inquiry"
+	}
+	body := fmt.Sprintf(
+		"New Kalypt inquiry\n\nName: %s\nEmail: %s\nFocus: %s\nMessage:\n%s\n\nUser-Agent: %s\nRemote: %s\n",
+		item.Name,
+		item.Email,
+		item.Focus,
+		item.Message,
+		item.UserAgent,
+		item.RemoteAddr,
+	)
+	msg := strings.Join([]string{
+		"From: " + n.from,
+		"To: " + n.to,
+		"Reply-To: " + cleanHeader(item.Email),
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		body,
+	}, "\r\n")
+	addr := n.host + ":" + strconv.Itoa(n.port)
+	auth := smtp.PlainAuth("", n.username, n.password, n.host)
+	return smtp.SendMail(addr, auth, n.from, []string{n.to}, []byte(msg))
+}
+
+func cleanHeader(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
 }
 
 func validEmail(value string) bool {

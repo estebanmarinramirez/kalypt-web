@@ -35,8 +35,14 @@ func TestContactRejectsInvalidEmail(t *testing.T) {
 
 func TestContactAcceptsValidInquiry(t *testing.T) {
 	var captured map[string]string
+	var emailed inquiry
 	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
-	handler.(*app).supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	site := handler.(*app)
+	site.notifier = notifierFunc(func(_ *http.Request, item inquiry) error {
+		emailed = item
+		return nil
+	})
+	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/rest/v1/inquiries" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -80,6 +86,9 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 	if captured["name"] != "Ada Lovelace" || captured["email"] != "ada@example.com" || captured["focus"] != "securities" {
 		t.Fatalf("unexpected Supabase payload: %#v", captured)
 	}
+	if emailed.Name != "Ada Lovelace" || emailed.Email != "ada@example.com" || emailed.Focus != "securities" {
+		t.Fatalf("unexpected email payload: %#v", emailed)
+	}
 }
 
 func TestContactReturnsServerErrorWhenSupabaseIsMissing(t *testing.T) {
@@ -101,6 +110,38 @@ func TestContactReturnsServerErrorWhenSupabaseIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "temporarily unavailable") {
 		t.Fatalf("expected configuration error response, got %q", rec.Body.String())
+	}
+}
+
+func TestContactReturnsServerErrorWhenEmailIsMissing(t *testing.T) {
+	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
+	site := handler.(*app)
+	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString("{}")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	site.notifier = newSMTPNotifierFromEnv()
+
+	form := url.Values{
+		"name":    {"Ada Lovelace"},
+		"email":   {"ada@example.com"},
+		"market":  {"careers"},
+		"message": {"I would like to understand your research process."},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/contact", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "notification") {
+		t.Fatalf("expected notification error response, got %q", rec.Body.String())
 	}
 }
 
@@ -144,6 +185,12 @@ func newTestApp(t *testing.T, supabaseURL, supabaseSecret string) http.Handler {
 	t.Setenv("SUPABASE_URL", supabaseURL)
 	t.Setenv("SUPABASE_SECRET_KEY", supabaseSecret)
 	t.Setenv("SUPABASE_INQUIRIES_TABLE", "")
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_PORT", "")
+	t.Setenv("SMTP_USERNAME", "")
+	t.Setenv("SMTP_PASSWORD", "")
+	t.Setenv("SMTP_FROM", "")
+	t.Setenv("INQUIRY_EMAIL_TO", "")
 	t.Setenv("GOCACHE", os.Getenv("GOCACHE"))
 	return newApp()
 }
@@ -152,4 +199,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return fn(r)
+}
+
+type notifierFunc func(*http.Request, inquiry) error
+
+func (fn notifierFunc) sendInquiry(r *http.Request, item inquiry) error {
+	return fn(r, item)
 }
