@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
@@ -182,8 +184,6 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			log.Printf("inquiry email notification failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, "Inquiry notification is temporarily unavailable.")
-			return
 		}
 		log.Printf("inquiry received focus=%q message_chars=%d", focus, len(message))
 		writeJSON(w, http.StatusOK, "Inquiry received. We will respond if there is a fit.")
@@ -345,7 +345,59 @@ func (n *smtpNotifier) sendInquiry(r *http.Request, item inquiry) error {
 	}, "\r\n")
 	addr := n.host + ":" + strconv.Itoa(n.port)
 	auth := smtp.PlainAuth("", n.username, n.password, n.host)
-	return smtp.SendMail(addr, auth, n.from, []string{n.to}, []byte(msg))
+	return sendMailWithTimeout(addr, auth, n.from, []string{n.to}, []byte(msg), 4*time.Second)
+}
+
+func sendMailWithTimeout(addr string, auth smtp.Auth, from string, to []string, msg []byte, timeout time.Duration) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		config := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+		if err := client.StartTLS(config); err != nil {
+			return err
+		}
+	}
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, addr := range to {
+		if err := client.Rcpt(addr); err != nil {
+			return err
+		}
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(msg); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func cleanHeader(value string) string {

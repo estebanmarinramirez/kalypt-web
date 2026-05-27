@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -124,6 +125,37 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 	}
 	if emailed.Name != "Ada Lovelace" || emailed.Email != "ada@example.com" || emailed.Focus != "securities" {
 		t.Fatalf("unexpected email payload: %#v", emailed)
+	}
+}
+
+func TestContactSucceedsWhenEmailNotificationFails(t *testing.T) {
+	handler := newTestApp(t, "https://project.supabase.co", "eyJlegacy-service-role")
+	site := handler.(*app)
+	site.notifier = notifierFunc(func(_ *http.Request, _ inquiry) error {
+		return errors.New("smtp blocked")
+	})
+	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString("{}")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	form := url.Values{
+		"name":    {"Ada Lovelace"},
+		"email":   {"ada@example.com"},
+		"market":  {"careers"},
+		"message": {"I would like to discuss research roles."},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/contact", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 even when notification fails, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -298,7 +330,7 @@ func TestContactReturnsServerErrorWhenSupabaseIsMissing(t *testing.T) {
 	}
 }
 
-func TestContactReturnsServerErrorWhenEmailIsMissing(t *testing.T) {
+func TestContactSucceedsWhenEmailConfigIsMissing(t *testing.T) {
 	handler := newTestApp(t, "https://project.supabase.co", "test-secret")
 	site := handler.(*app)
 	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -322,11 +354,8 @@ func TestContactReturnsServerErrorWhenEmailIsMissing(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "notification") {
-		t.Fatalf("expected notification error response, got %q", rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
