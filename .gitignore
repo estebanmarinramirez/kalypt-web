@@ -1,5 +1,6 @@
 .env
 .gocache/
+supabase/.temp/
 kalypt
 app
 *.log
