@@ -209,7 +209,7 @@ func newSupabaseClientFromEnv() *supabaseClient {
 	}
 	return &supabaseClient{
 		url:        normalizeSupabaseURL(os.Getenv("SUPABASE_URL")),
-		secretKey:  secretKey,
+		secretKey:  normalizeSupabaseKey(secretKey),
 		table:      table,
 		httpClient: &http.Client{Timeout: 6 * time.Second},
 	}
@@ -219,6 +219,14 @@ func normalizeSupabaseURL(raw string) string {
 	value := strings.TrimRight(strings.TrimSpace(raw), "/")
 	value = strings.TrimSuffix(value, "/rest/v1")
 	return strings.TrimRight(value, "/")
+}
+
+func normalizeSupabaseKey(raw string) string {
+	value := strings.TrimSpace(raw)
+	value = strings.Trim(value, `"'`)
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "Bearer ")
+	return strings.TrimSpace(value)
 }
 
 func (c *supabaseClient) insertInquiry(ctx context.Context, item inquiry) error {

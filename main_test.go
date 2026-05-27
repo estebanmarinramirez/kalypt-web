@@ -186,6 +186,17 @@ func TestSupabaseClientAcceptsServiceRoleKeyAlias(t *testing.T) {
 	}
 }
 
+func TestSupabaseClientNormalizesPastedKey(t *testing.T) {
+	t.Setenv("SUPABASE_URL", "https://project.supabase.co")
+	t.Setenv("SUPABASE_SECRET_KEY", "\"Bearer service-role-secret\"")
+
+	client := newSupabaseClientFromEnv()
+
+	if client.secretKey != "service-role-secret" {
+		t.Fatalf("expected normalized key, got %q", client.secretKey)
+	}
+}
+
 func TestContactAcceptsBrowserFormDataSubmission(t *testing.T) {
 	var captured map[string]string
 	var body bytes.Buffer
