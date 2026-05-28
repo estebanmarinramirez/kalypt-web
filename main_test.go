@@ -72,11 +72,11 @@ func TestPagesAllowHeadRequests(t *testing.T) {
 
 func TestContactAcceptsValidInquiry(t *testing.T) {
 	var captured map[string]string
-	var emailed inquiry
+	emailed := make(chan inquiry, 1)
 	handler := newTestApp(t, "https://project.supabase.co", "eyJlegacy-service-role")
 	site := handler.(*app)
 	site.notifier = notifierFunc(func(_ *http.Request, item inquiry) error {
-		emailed = item
+		emailed <- item
 		return nil
 	})
 	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -123,8 +123,13 @@ func TestContactAcceptsValidInquiry(t *testing.T) {
 	if captured["name"] != "Ada Lovelace" || captured["email"] != "ada@example.com" || captured["focus"] != "securities" {
 		t.Fatalf("unexpected Supabase payload: %#v", captured)
 	}
-	if emailed.Name != "Ada Lovelace" || emailed.Email != "ada@example.com" || emailed.Focus != "securities" {
-		t.Fatalf("unexpected email payload: %#v", emailed)
+	select {
+	case item := <-emailed:
+		if item.Name != "Ada Lovelace" || item.Email != "ada@example.com" || item.Focus != "securities" {
+			t.Fatalf("unexpected email payload: %#v", item)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected email notification to be attempted")
 	}
 }
 
@@ -156,6 +161,56 @@ func TestContactSucceedsWhenEmailNotificationFails(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 even when notification fails, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestContactDoesNotWaitForSlowEmailNotification(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler := newTestApp(t, "https://project.supabase.co", "eyJlegacy-service-role")
+	site := handler.(*app)
+	site.notifier = notifierFunc(func(_ *http.Request, _ inquiry) error {
+		close(started)
+		<-release
+		return nil
+	})
+	t.Cleanup(func() { close(release) })
+	site.supabase.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(bytes.NewBufferString("{}")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	form := url.Values{
+		"name":    {"Ada Lovelace"},
+		"email":   {"ada@example.com"},
+		"market":  {"careers"},
+		"message": {"I would like to discuss research roles."},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/contact", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("expected email notification to start")
+	}
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("contact handler waited for email notification")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

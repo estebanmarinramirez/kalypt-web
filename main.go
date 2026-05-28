@@ -174,19 +174,23 @@ func (a *app) contact(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, "Inquiry storage is temporarily unavailable.")
 			return
 		}
-		err = a.notifier.sendInquiry(r, inquiry{
+		notification := inquiry{
 			Name:       name,
 			Email:      email,
 			Focus:      focus,
 			Message:    message,
 			UserAgent:  r.UserAgent(),
 			RemoteAddr: r.RemoteAddr,
-		})
-		if err != nil {
-			log.Printf("inquiry email notification failed: %v", err)
 		}
+		go a.sendInquiryNotification(r, notification)
 		log.Printf("inquiry received focus=%q message_chars=%d", focus, len(message))
 		writeJSON(w, http.StatusOK, "Inquiry received. We will respond if there is a fit.")
+	}
+}
+
+func (a *app) sendInquiryNotification(r *http.Request, item inquiry) {
+	if err := a.notifier.sendInquiry(r, item); err != nil {
+		log.Printf("inquiry email notification failed: %v", err)
 	}
 }
 
