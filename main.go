@@ -109,6 +109,7 @@ func (a *app) routes() {
 	static := http.FileServer(http.Dir("static"))
 	a.mux.Handle("/static/", http.StripPrefix("/static/", static))
 	a.mux.HandleFunc("/", a.page("home", "Kalypt"))
+	a.mux.HandleFunc("/preview", a.page("preview", "Kalypt - Ma Preview"))
 	a.mux.HandleFunc("/privacy", a.page("privacy", "Privacy"))
 	a.mux.HandleFunc("/terms", a.page("terms", "Terms"))
 	a.mux.HandleFunc("/cookies", a.page("cookies", "Cookies"))

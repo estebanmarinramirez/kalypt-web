@@ -70,6 +70,24 @@ func TestPagesAllowHeadRequests(t *testing.T) {
 	}
 }
 
+func TestPreviewRendersMaRedesign(t *testing.T) {
+	app := newApp()
+
+	previewReq := httptest.NewRequest(http.MethodGet, "/preview", nil)
+	previewRec := httptest.NewRecorder()
+	app.ServeHTTP(previewRec, previewReq)
+
+	if previewRec.Code != http.StatusOK {
+		t.Fatalf("expected preview 200, got %d", previewRec.Code)
+	}
+	previewBody := previewRec.Body.String()
+	for _, want := range []string{"Kalypt - Ma Preview", "Signal in", "観測 · 反証 · 制御"} {
+		if !strings.Contains(previewBody, want) {
+			t.Fatalf("expected preview body to contain %q", want)
+		}
+	}
+}
+
 func TestContactAcceptsValidInquiry(t *testing.T) {
 	var captured map[string]string
 	emailed := make(chan inquiry, 1)
@@ -451,7 +469,7 @@ func TestHomeRendersCareersContent(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Research Scientist", "Research Infrastructure Programmer", "Research that earns its latency"} {
+	for _, want := range []string{"Signal in", "Research Scientist", "Systems for", "Research that", "Tokyo", "Berlin", "New York"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected home page to contain %q", want)
 		}
