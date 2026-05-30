@@ -9,11 +9,8 @@ export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="your-server-side-service-role-key"
 export SUPABASE_INQUIRIES_TABLE="inquiries"
 export INQUIRY_EMAIL_TO="estebanmarinramirez@icloud.com"
-export SMTP_HOST="smtp.example.com"
-export SMTP_PORT="587"
-export SMTP_USERNAME="your-smtp-username"
-export SMTP_PASSWORD="your-smtp-password"
-export SMTP_FROM="notifications@your-domain.com"
+export RESEND_API_KEY="re_your-api-key"
+export RESEND_FROM="Kalypt <inquiries@your-domain.com>"
 go run .
 ```
 
@@ -44,11 +41,8 @@ SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-server-side-service-role-key
 SUPABASE_INQUIRIES_TABLE=inquiries
 INQUIRY_EMAIL_TO=estebanmarinramirez@icloud.com
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USERNAME=your-smtp-username
-SMTP_PASSWORD=your-smtp-password
-SMTP_FROM=notifications@your-domain.com
+RESEND_API_KEY=re_your-api-key
+RESEND_FROM=Kalypt <inquiries@your-domain.com>
 ```
 
 ## Supabase
@@ -59,6 +53,8 @@ Run `supabase/schema.sql` in the Supabase SQL editor before enabling the contact
 
 ## Email Notifications
 
-The contact endpoint saves each inquiry to Supabase, then sends an SMTP notification to `INQUIRY_EMAIL_TO`.
+The contact endpoint saves each inquiry to Supabase, then sends a Resend email notification to `INQUIRY_EMAIL_TO`.
 
-Use a transactional SMTP provider or a mailbox that allows app passwords. Keep `SMTP_PASSWORD` server-side in Render.
+Create a Resend API key, verify the sender domain, and set `RESEND_FROM` to an address on that verified domain. Keep `RESEND_API_KEY` server-side in Render.
+
+SMTP remains available as a local/legacy fallback if `RESEND_API_KEY` is not set, but Resend is preferred for Render because it uses HTTPS instead of outbound SMTP ports.

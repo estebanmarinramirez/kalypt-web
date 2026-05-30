@@ -432,6 +432,82 @@ func TestContactSucceedsWhenEmailConfigIsMissing(t *testing.T) {
 	}
 }
 
+func TestResendNotifierSendsInquiryOverHTTPS(t *testing.T) {
+	var captured map[string]any
+	notifier := &resendNotifier{
+		apiURL: "https://api.resend.test/emails",
+		apiKey: "re_test",
+		from:   "Kalypt <inquiries@example.com>",
+		to:     "esteban@example.com",
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST, got %s", r.Method)
+			}
+			if r.URL.String() != "https://api.resend.test/emails" {
+				t.Fatalf("unexpected Resend URL %s", r.URL.String())
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer re_test" {
+				t.Fatalf("unexpected authorization header %q", got)
+			}
+			if got := r.Header.Get("Content-Type"); got != "application/json" {
+				t.Fatalf("unexpected content type %q", got)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewBufferString(`{"id":"email_123"}`)),
+				Header:     make(http.Header),
+			}, nil
+		})},
+	}
+
+	err := notifier.sendInquiry(httptest.NewRequest(http.MethodPost, "/contact", nil), inquiry{
+		Name:      "Ada Lovelace",
+		Email:     "ada@example.com",
+		Focus:     "institutional",
+		Message:   "We would like to discuss allocation.",
+		UserAgent: "test-agent",
+	})
+
+	if err != nil {
+		t.Fatalf("send inquiry: %v", err)
+	}
+	if captured["from"] != "Kalypt <inquiries@example.com>" {
+		t.Fatalf("unexpected from payload: %#v", captured)
+	}
+	if captured["reply_to"] != "ada@example.com" {
+		t.Fatalf("expected reply_to to be submitter email, got %#v", captured["reply_to"])
+	}
+	if captured["subject"] != "New Kalypt inquiry: institutional" {
+		t.Fatalf("unexpected subject %#v", captured["subject"])
+	}
+	if !strings.Contains(captured["text"].(string), "Ada Lovelace") {
+		t.Fatalf("expected text body to contain inquiry details, got %#v", captured["text"])
+	}
+	to, ok := captured["to"].([]any)
+	if !ok || len(to) != 1 || to[0] != "esteban@example.com" {
+		t.Fatalf("unexpected to payload: %#v", captured["to"])
+	}
+}
+
+func TestNewInquiryNotifierPrefersResendWhenConfigured(t *testing.T) {
+	t.Setenv("RESEND_API_KEY", "re_test")
+	t.Setenv("RESEND_FROM", "Kalypt <inquiries@example.com>")
+	t.Setenv("INQUIRY_EMAIL_TO", "esteban@example.com")
+
+	notifier := newInquiryNotifierFromEnv()
+
+	resend, ok := notifier.(*resendNotifier)
+	if !ok {
+		t.Fatalf("expected resend notifier, got %T", notifier)
+	}
+	if resend.apiKey != "re_test" || resend.from != "Kalypt <inquiries@example.com>" || resend.to != "esteban@example.com" {
+		t.Fatalf("unexpected resend notifier config: %#v", resend)
+	}
+}
+
 func TestSMTPNotifierDefaultsToCorrectRecipient(t *testing.T) {
 	t.Setenv("INQUIRY_EMAIL_TO", "")
 	notifier := newSMTPNotifierFromEnv()
@@ -488,6 +564,8 @@ func newTestApp(t *testing.T, supabaseURL, supabaseSecret string) http.Handler {
 	t.Setenv("SMTP_PASSWORD", "")
 	t.Setenv("SMTP_FROM", "")
 	t.Setenv("INQUIRY_EMAIL_TO", "")
+	t.Setenv("RESEND_API_KEY", "")
+	t.Setenv("RESEND_FROM", "")
 	t.Setenv("GOCACHE", os.Getenv("GOCACHE"))
 	return newApp()
 }

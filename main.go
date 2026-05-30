@@ -67,6 +67,14 @@ type smtpNotifier struct {
 	to       string
 }
 
+type resendNotifier struct {
+	apiURL     string
+	apiKey     string
+	from       string
+	to         string
+	httpClient *http.Client
+}
+
 func main() {
 	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
@@ -87,7 +95,7 @@ func newApp() http.Handler {
 		mux:       http.NewServeMux(),
 		templates: tmpl,
 		supabase:  newSupabaseClientFromEnv(),
-		notifier:  newSMTPNotifierFromEnv(),
+		notifier:  newInquiryNotifierFromEnv(),
 	}
 	a.routes()
 	return a
@@ -294,6 +302,70 @@ func validateSupabaseConfig(rawURL, table string) error {
 	return nil
 }
 
+func newInquiryNotifierFromEnv() inquiryNotifier {
+	if strings.TrimSpace(os.Getenv("RESEND_API_KEY")) != "" {
+		return newResendNotifierFromEnv()
+	}
+	return newSMTPNotifierFromEnv()
+}
+
+func newResendNotifierFromEnv() *resendNotifier {
+	to := strings.TrimSpace(os.Getenv("INQUIRY_EMAIL_TO"))
+	if to == "" {
+		to = "estebanmarinramirez@icloud.com"
+	}
+	apiURL := strings.TrimSpace(os.Getenv("RESEND_API_URL"))
+	if apiURL == "" {
+		apiURL = "https://api.resend.com/emails"
+	}
+	return &resendNotifier{
+		apiURL:     apiURL,
+		apiKey:     strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
+		from:       strings.TrimSpace(os.Getenv("RESEND_FROM")),
+		to:         to,
+		httpClient: &http.Client{Timeout: 6 * time.Second},
+	}
+}
+
+func (n *resendNotifier) sendInquiry(r *http.Request, item inquiry) error {
+	if n == nil || n.apiURL == "" || n.apiKey == "" || n.from == "" || n.to == "" {
+		return errors.New("resend configuration missing")
+	}
+	if !validEmail(n.to) {
+		return errors.New("inquiry recipient email invalid")
+	}
+	subject, body := inquiryEmailContent(item)
+	payload := map[string]any{
+		"from":    n.from,
+		"to":      []string{n.to},
+		"subject": subject,
+		"text":    body,
+	}
+	if validEmail(item.Email) {
+		payload["reply_to"] = item.Email
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode resend request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, n.apiURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build resend request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+n.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := n.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send resend request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("resend returned status %d: %s", resp.StatusCode, limitedResponseBody(resp.Body))
+	}
+	return nil
+}
+
 func newSMTPNotifierFromEnv() *smtpNotifier {
 	port := 587
 	if raw := strings.TrimSpace(os.Getenv("SMTP_PORT")); raw != "" {
@@ -325,19 +397,7 @@ func (n *smtpNotifier) sendInquiry(r *http.Request, item inquiry) error {
 	if !validEmail(n.from) {
 		return errors.New("smtp from email invalid")
 	}
-	subject := "New Kalypt inquiry: " + cleanHeader(item.Focus)
-	if strings.TrimSpace(item.Focus) == "" {
-		subject = "New Kalypt inquiry"
-	}
-	body := fmt.Sprintf(
-		"New Kalypt inquiry\n\nName: %s\nEmail: %s\nFocus: %s\nMessage:\n%s\n\nUser-Agent: %s\nRemote: %s\n",
-		item.Name,
-		item.Email,
-		item.Focus,
-		item.Message,
-		item.UserAgent,
-		item.RemoteAddr,
-	)
+	subject, body := inquiryEmailContent(item)
 	msg := strings.Join([]string{
 		"From: " + n.from,
 		"To: " + n.to,
@@ -351,6 +411,23 @@ func (n *smtpNotifier) sendInquiry(r *http.Request, item inquiry) error {
 	addr := n.host + ":" + strconv.Itoa(n.port)
 	auth := smtp.PlainAuth("", n.username, n.password, n.host)
 	return sendMailWithTimeout(addr, auth, n.from, []string{n.to}, []byte(msg), 4*time.Second)
+}
+
+func inquiryEmailContent(item inquiry) (string, string) {
+	subject := "New Kalypt inquiry: " + cleanHeader(item.Focus)
+	if strings.TrimSpace(item.Focus) == "" {
+		subject = "New Kalypt inquiry"
+	}
+	body := fmt.Sprintf(
+		"New Kalypt inquiry\n\nName: %s\nEmail: %s\nFocus: %s\nMessage:\n%s\n\nUser-Agent: %s\nRemote: %s\n",
+		item.Name,
+		item.Email,
+		item.Focus,
+		item.Message,
+		item.UserAgent,
+		item.RemoteAddr,
+	)
+	return subject, body
 }
 
 func sendMailWithTimeout(addr string, auth smtp.Auth, from string, to []string, msg []byte, timeout time.Duration) error {
